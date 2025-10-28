@@ -1,20 +1,24 @@
-import 'dotenv/config';
-import { Hono } from 'hono';
-import { serve } from '@hono/node-server';
-import { optionalAuth } from './middlewares/auth.js';
-import propertyApp from './routes/properties.js';
-import { supabase } from './lib/supabase.js'; // kvar för test GET /
-
+import "dotenv/config";
+import { Hono } from "hono";
+import { serve } from "@hono/node-server";
+import { optionalAuth } from "./middlewares/auth.js";
+import propertyApp from "./routes/properties.js";
+import authApp from "./routes/auth.js";
+import { supabase } from "./lib/supabase.js"; // för din test-GET nedan
+import bookingApp from "./routes/bookings.js";
 const app = new Hono();
-app.use('*', optionalAuth);
-app.route('/auth', (await import('./routes/auth.js')).authApp);
+app.use("*", optionalAuth);
 
-app.get('/', async (c) => {
-  const { data } = await supabase.from('properties').select('*').limit(1);
-  return c.json({ ok: true, service: 'bnb-api', data: data ?? [] });
+// Test-root (valfritt)
+app.get("/", async (c) => {
+  const { data, error } = await supabase.from("properties").select("*").limit(1);
+  if (error) return c.json({ ok: false, error: error.message });
+  return c.json({ ok: true, service: "bnb-api", data });
 });
 
-app.route('/properties', propertyApp);
+app.route("/auth", authApp);
+app.route("/properties", propertyApp);
+app.route("/bookings", bookingApp);
 
 const port = Number(process.env.HONO_PORT) || 5177;
 console.log(`API running on http://localhost:${port}`);

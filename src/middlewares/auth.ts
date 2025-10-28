@@ -2,6 +2,8 @@ import type { Context, Next } from "hono";
 import { setCookie } from "hono/cookie";
 import { createServerClient, parseCookieHeader } from "@supabase/ssr";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import { supabaseUrl, supabaseKey } from "../lib/supabase.js";
+import { HTTPException } from "hono/http-exception";
 
 declare module "hono" {
   interface ContextVariableMap {
@@ -10,41 +12,33 @@ declare module "hono" {
   }
 }
 
-function createSupabaseForRequest(c: Context) {
-  // Bedöm om vi kör över https (prod) eller http (lokalt)
-  const isProd =
-    c.req.url.startsWith("https://") ||
-    process.env.NODE_ENV === "production";
-
-  return createServerClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return parseCookieHeader(c.req.header("Cookie") ?? "").map(
-            ({ name, value }) => ({ name, value: value ?? "" })
-          );
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            setCookie(c, name, value, {
-              ...options,
-              httpOnly: true,
-              secure: isProd,      // <— viktigt: false i dev (http)
-              sameSite: "lax",
-              path: "/",
-            });
-          });
-        },
+function createSb(c: Context) {
+  return createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return parseCookieHeader(c.req.header("Cookie") ?? "").map(({ name, value }) => ({
+          name,
+          value: value ?? "",
+        }));
       },
-    }
-  );
+      setAll(cookies) {
+        cookies.forEach(({ name, value, options }) => {
+          setCookie(c, name, value, {
+            ...options,
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+            path: "/",
+          });
+        });
+      },
+    },
+  });
 }
 
-export async function optionalAuth(c: Context, next: Next) {
+export async function withSupabase(c: Context, next: Next) {
   if (!c.get("supabase")) {
-    const sb = createSupabaseForRequest(c);
+    const sb = createSb(c);
     c.set("supabase", sb);
     const { data: { user }, error } = await sb.auth.getUser();
     c.set("user", error ? null : user);
@@ -52,9 +46,11 @@ export async function optionalAuth(c: Context, next: Next) {
   return next();
 }
 
+export const optionalAuth = withSupabase;
+
 export async function requireAuth(c: Context, next: Next) {
-  await optionalAuth(c, async () => {});
+  await withSupabase(c, async () => {});
   const user = c.get("user");
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  if (!user) throw new HTTPException(401, { message: "Unauthorized" });
   return next();
 }
