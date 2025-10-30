@@ -1,75 +1,125 @@
-import { Hono } from 'hono';
-import { requireAuth } from '../middlewares/auth.js';
-import type { NewProperty } from '../types/property.js';
-import {
-  listPublicProperties,
-  listMyProperties,
-  getPropertyById,
-  createProperty,
-  updateProperty,
-  deleteProperty,
-} from '../database/property.js';
+import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
+import { optionalAuth, requireAuth } from "../middlewares/auth.js";
+import type { User } from "@supabase/supabase-js";
 
 const propertyApp = new Hono();
 
-// LISTA (offentligt – bara aktiva)
-propertyApp.get('/', async (c) => {
-  const sb = c.get('supabase');
-  const { data, error } = await listPublicProperties(sb);
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json({ data });
+// LISTA (öppet)
+propertyApp.get("/", optionalAuth, async (c) => {
+  try {
+    const sb = c.get("supabase");
+    const { data, error } = await sb
+      .from("properties")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("GET /properties error:", error);
+      throw new HTTPException(500, { res: c.json({ error: error.message }, 500) });
+    }
+    return c.json({ data });
+  } catch (err: any) {
+    console.error("GET /properties crashed:", err);
+    return c.json({ error: err?.message ?? "Server error" }, 500);
+  }
 });
 
-// MINA (kräver inloggning)
-propertyApp.get('/mine', requireAuth, async (c) => {
-  const sb = c.get('supabase');
-  const user = c.get('user')!;
-  const { data, error } = await listMyProperties(sb, user.id);
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json({ data });
-});
-
-// HÄMTA EN (offentligt om aktiv, annars ägaren – låt RLS avgöra om rad returneras)
-propertyApp.get('/:id', async (c) => {
-  const sb = c.get('supabase');
-  const id = c.req.param('id');
-  const { data, error } = await getPropertyById(sb, id);
-  if (error) return c.json({ error: error.message }, 404);
-  return c.json({ data });
+// HÄMTA en
+propertyApp.get("/:id", optionalAuth, async (c) => {
+  try {
+    const sb = c.get("supabase");
+    const id = c.req.param("id");
+    const { data, error } = await sb.from("properties").select("*").eq("id", id).single();
+    if (error) return c.json({ error: "Not found" }, 404);
+    return c.json({ data });
+  } catch (err: any) {
+    console.error("GET /properties/:id crashed:", err);
+    return c.json({ error: err?.message ?? "Server error" }, 500);
+  }
 });
 
 // SKAPA (kräver inloggning)
-propertyApp.post('/', requireAuth, async (c) => {
-  const sb = c.get('supabase');
-  const user = c.get('user')!;
-  const body = await c.req.json<NewProperty>();
-  const payload = { ...body, owner_id: user.id };
+propertyApp.post("/", requireAuth, async (c) => {
+  try {
+    const sb = c.get("supabase");
+    const user = c.get("user") as User; // <- TS: user is guaranteed by requireAuth
+    const body = await c.req.json();
 
-  const { data, error } = await createProperty(sb, payload);
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json({ data }, 201);
+    const payload = {
+      title: body.title,
+      description: body.description ?? null,
+      location: body.location ?? null,
+      price_per_night: Number(body.price_per_night ?? 0),
+      is_active: body.is_active ?? true,
+      owner_id: user.id, // <- kräver kolumnen owner_id
+    };
+
+    const { data, error } = await sb
+      .from("properties")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("POST /properties error:", error);
+      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
+    }
+
+    return c.json({ data }, 201);
+  } catch (err: any) {
+    console.error("POST /properties crashed:", err);
+    return c.json({ error: err?.message ?? "Server error" }, 500);
+  }
 });
 
-// UPPDATERA (kräver inloggning, RLS = endast ägaren)
-propertyApp.put('/:id', requireAuth, async (c) => {
-  const sb = c.get('supabase');
-  const id = c.req.param('id');
-  const patch = await c.req.json<Partial<NewProperty>>();
+// UPPDATERA (kräver inloggning)
+propertyApp.put("/:id", requireAuth, async (c) => {
+  try {
+    const sb = c.get("supabase");
+    const id = c.req.param("id");
+    const body = await c.req.json();
 
-  const { data, error } = await updateProperty(sb, id, patch);
-  if (error) return c.json({ error: error.message }, 400);
-  return c.json({ data });
+    const { data, error } = await sb
+      .from("properties")
+      .update({
+        title: body.title,
+        description: body.description ?? null,
+        location: body.location ?? null,
+        price_per_night: Number(body.price_per_night ?? 0),
+        is_active: body.is_active ?? true,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.error("PUT /properties/:id error:", error);
+      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
+    }
+    return c.json({ data });
+  } catch (err: any) {
+    console.error("PUT /properties/:id crashed:", err);
+    return c.json({ error: err?.message ?? "Server error" }, 500);
+  }
 });
 
-// RADERA (kräver inloggning, RLS = endast ägaren)
-propertyApp.delete('/:id', requireAuth, async (c) => {
-  const sb = c.get('supabase');
-  const id = c.req.param('id');
+// TA BORT (kräver inloggning)
+propertyApp.delete("/:id", requireAuth, async (c) => {
+  try {
+    const sb = c.get("supabase");
+    const id = c.req.param("id");
 
-  const { error } = await deleteProperty(sb, id);
-  if (error) return c.json({ error: error.message }, 400);
-
-  return c.json({ message: 'Property deleted successfully' }, 200);
+    const { error } = await sb.from("properties").delete().eq("id", id);
+    if (error) {
+      console.error("DELETE /properties/:id error:", error);
+      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
+    }
+    return c.json({ ok: true });
+  } catch (err: any) {
+    console.error("DELETE /properties/:id crashed:", err);
+    return c.json({ error: err?.message ?? "Server error" }, 500);
+  }
 });
 
 export default propertyApp;

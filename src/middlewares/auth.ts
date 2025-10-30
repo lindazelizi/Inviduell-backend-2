@@ -26,7 +26,8 @@ function createSb(c: Context) {
           setCookie(c, name, value, {
             ...options,
             httpOnly: true,
-            secure: true,
+            // ✅ endast secure i production (måste vara false på http://localhost)
+            secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
             path: "/",
           });
@@ -40,7 +41,10 @@ export async function withSupabase(c: Context, next: Next) {
   if (!c.get("supabase")) {
     const sb = createSb(c);
     c.set("supabase", sb);
-    const { data: { user }, error } = await sb.auth.getUser();
+    const {
+      data: { user },
+      error,
+    } = await sb.auth.getUser();
     c.set("user", error ? null : user);
   }
   return next();
