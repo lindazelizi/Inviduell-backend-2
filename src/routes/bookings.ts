@@ -5,15 +5,21 @@ import * as db from "../database/booking.js";
 
 const bookingApp = new Hono();
 
-// Lista bokningar för inloggad (RLS visar egna + som värd på egna properties)
+/**
+ * Lista bokningar för INLOGGAD användare
+ * (vi skickar in user.id → RLS + explicit filter)
+ */
 bookingApp.get("/", requireAuth, async (c) => {
   const sb = c.get("supabase");
-  const { data, error } = await db.listBookings(sb);
+  const user = c.get("user")!; // garanteras av requireAuth
+  const { data, error } = await db.listBookings(sb, user.id);
   if (error) return c.json({ error: error.message }, 400);
   return c.json({ data });
 });
 
-// Hämta en bokning
+/**
+ * Hämta en bokning (RLS skyddar åtkomst)
+ */
 bookingApp.get("/:id", requireAuth, async (c) => {
   const sb = c.get("supabase");
   const id = c.req.param("id");
@@ -22,29 +28,45 @@ bookingApp.get("/:id", requireAuth, async (c) => {
   return c.json({ data });
 });
 
-// Skapa bokning – räknar totalpris automatiskt
+/**
+ * Skapa bokning – räknar totalpris automatiskt
+ */
 bookingApp.post("/", requireAuth, async (c) => {
   const sb = c.get("supabase");
-  const user = c.get("user")!; // ⬅️ ändringen: non-null assertion
+  const user = c.get("user")!;
   const body = (await c.req.json()) as NewBooking;
 
   const { data, error } = await db.createBooking(sb, user.id, body);
-  if (error) return c.json({ error: (error as any).message ?? "Failed to create booking" }, 400);
+  if (error) {
+    return c.json(
+      { error: (error as any).message ?? "Failed to create booking" },
+      400
+    );
+  }
   return c.json({ data }, 201);
 });
 
-// Uppdatera t.ex. datum (räknar om totalpris om båda datum medföljer)
+/**
+ * Uppdatera bokning (räknar om totalpris om båda datum finns)
+ */
 bookingApp.put("/:id", requireAuth, async (c) => {
   const sb = c.get("supabase");
   const id = c.req.param("id");
   const body = (await c.req.json()) as Partial<NewBooking>;
 
   const { data, error } = await db.updateBooking(sb, id, body);
-  if (error) return c.json({ error: (error as any).message ?? "Failed to update booking" }, 400);
+  if (error) {
+    return c.json(
+      { error: (error as any).message ?? "Failed to update booking" },
+      400
+    );
+  }
   return c.json({ data });
 });
 
-// Ta bort
+/**
+ * Ta bort bokning
+ */
 bookingApp.delete("/:id", requireAuth, async (c) => {
   const sb = c.get("supabase");
   const id = c.req.param("id");

@@ -2,8 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import dayjs from "dayjs";
 import type { NewBooking } from "../types/booking.js";
 
-export async function listBookings(sb: SupabaseClient) {
-  return sb.from("bookings").select("*").order("created_at", { ascending: false });
+/**
+ * List ONLY the logged-in user's bookings (explicit filter).
+ * We also keep RLS enabled as a second safety net.
+ */
+export async function listBookings(sb: SupabaseClient, userId: string) {
+  return sb
+    .from("bookings")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
 }
 
 export async function getBooking(sb: SupabaseClient, id: string) {
@@ -12,7 +20,7 @@ export async function getBooking(sb: SupabaseClient, id: string) {
 
 export async function createBooking(
   sb: SupabaseClient,
-  userId: string,                 // <-- bytt namn
+  userId: string,
   payload: NewBooking
 ) {
   const { property_id, check_in, check_out } = payload;
@@ -41,7 +49,7 @@ export async function createBooking(
     .from("bookings")
     .insert({
       property_id,
-      user_id: userId,            // <-- viktigt: user_id
+      user_id: userId, // <- critical
       check_in,
       check_out,
       total_price,
