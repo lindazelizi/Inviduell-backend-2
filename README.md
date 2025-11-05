@@ -1,41 +1,46 @@
-# Inviduell-backend-2
-# BnB Backend (Hono + TypeScript + Supabase)
+# BnB Backend
 
-API-backend för en enkel BnB-hanteringsapp (likt Airbnb).  
-Byggd i **TypeScript** med **Hono** och **Supabase** (Postgres + Auth + RLS).
-
-## Funktioner
-
-- **Auth:** Cookie-baserad inloggning via Supabase (SSR-klient)  
-- **Properties:** CRUD. Endast ägare får skapa/uppdatera/radera (RLS)  
-- **Bookings:** CRUD. **total_price** beräknas automatiskt = pris/natt × antal nätter  
-- **RLS:** Policies i Supabase skyddar rader per användare/ägare  
-- **Strikt typning:** Inga `any`; delade typer i `src/types`
+## Översikt
+Detta är en lättviktig backend byggd med Hono och Node.js. Den hanterar användarautentisering, fastighetsannonser och bokningar, samt lagring av bilder via Supabase Storage.  
+Apiet är anpassat för att användas med frontend-appen på `http://localhost:3000`.
 
 ---
 
-## Kom igång
-
-### 1) Krav
-
-- Node 20+
-- Supabase-projekt (URL + anon key)
-- Postman/Insomnia för test (valfritt)
-
-### 2) Miljövariabler
-
-Skapa en `.env` i projektroten:
-
+## Installation och start
 ```bash
-HONO_PORT=5177
-
-# Från Supabase (Project Settings → API)
-SUPABASE_URL=https://<your-project>.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOi...
-
-# (valfritt) om du kör lokalt med annan origin i frontend
-CORS_ORIGIN=http://localhost:5173
-
 npm install
 npm run dev
-# API: http://localhost:5177
+
+Servern startar som standard på http://localhost:5177.
+
+HONO_PORT=5177
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+
+Funktioner
+
+Publik lista över aktiva boenden med sökfunktion.
+
+Detaljsida med galleri och lightbox.
+
+Gäst kan boka och se sina bokningar.
+
+Värd kan skapa, redigera och ta bort annonser.
+
+Bilduppladdning via backend till Supabase Storage.
+
+Inloggning och utloggning via Supabase Auth.
+
+Klient- och server-sidiga fetchar med token och cookies.
+
+Användning
+
+Starta backend och frontend.
+
+Registrera ett konto via /register.
+
+Logga in med samma uppgifter.
+
+Skapa en annons om du är värd, eller boka om du är gäst.
+
+Kontrollera dina egna bokningar eller annonser under respektive flik.
