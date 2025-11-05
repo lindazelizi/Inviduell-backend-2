@@ -1,0 +1,3 @@
+-- Exempel (uppdatera uuid:er till sådana som finns hos dig)
+-- insert into bookings (user_id, property_id, check_in, check_out, total_price)
+-- values ('<some-user-uuid>', '<a-property-uuid>', '2025-11-20', '2025-11-23', 3 * 2200);
