@@ -1,125 +1,188 @@
 import { Hono } from "hono";
-import { HTTPException } from "hono/http-exception";
-import { optionalAuth, requireAuth } from "../middlewares/auth.js";
+import { requireAuth, withSupabase } from "../middlewares/auth.js";
 import type { User } from "@supabase/supabase-js";
+
+type NewPropertyBody = {
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  price_per_night: number;
+  is_active?: boolean;
+  main_image_url?: string | null; // lagra storage-stig eller null
+  image_urls?: string[];          // lagra storage-stigar
+};
+
+type UpdatePropertyBody = Partial<NewPropertyBody>;
 
 const propertyApp = new Hono();
 
-// LISTA (öppet)
-propertyApp.get("/", optionalAuth, async (c) => {
-  try {
-    const sb = c.get("supabase");
-    const { data, error } = await sb
-      .from("properties")
-      .select("*")
-      .order("created_at", { ascending: false });
+/**
+ * GET /properties
+ * Publik lista över aktiva annonser
+ */
+propertyApp.get("/", withSupabase, async (c) => {
+  const sb = c.get("supabase");
+  const { data, error } = await sb
+    .from("properties")
+    .select("id,title,price_per_night,is_active,location,main_image_url,image_urls,owner_id")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("GET /properties error:", error);
-      throw new HTTPException(500, { res: c.json({ error: error.message }, 500) });
-    }
-    return c.json({ data });
-  } catch (err: any) {
-    console.error("GET /properties crashed:", err);
-    return c.json({ error: err?.message ?? "Server error" }, 500);
-  }
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ data });
 });
 
-// HÄMTA en
-propertyApp.get("/:id", optionalAuth, async (c) => {
-  try {
-    const sb = c.get("supabase");
-    const id = c.req.param("id");
-    const { data, error } = await sb.from("properties").select("*").eq("id", id).single();
-    if (error) return c.json({ error: "Not found" }, 404);
-    return c.json({ data });
-  } catch (err: any) {
-    console.error("GET /properties/:id crashed:", err);
-    return c.json({ error: err?.message ?? "Server error" }, 500);
+/**
+ * GET /properties/mine
+ * Lista värdens egna annonser (kräver inloggning + att rollen är host)
+ */
+propertyApp.get("/mine", requireAuth, async (c) => {
+  const sb = c.get("supabase");
+  const user = c.get("user") as User;
+
+  // (valfritt) kontroll: måste vara host
+  const { data: profile, error: pErr } = await sb
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .single();
+
+  if (pErr) return c.json({ error: pErr.message }, 400);
+  if (!profile || profile.role !== "host") {
+    return c.json({ error: "Endast värdar kan visa sina annonser." }, 403);
   }
+
+  const { data, error } = await sb
+    .from("properties")
+    .select("id,title,price_per_night,is_active,location,main_image_url,image_urls,owner_id")
+    .eq("owner_id", user.id) // ← visar bara ägarens
+    .order("created_at", { ascending: false });
+
+  if (error) return c.json({ error: error.message }, 400);
+  return c.json({ data });
 });
 
-// SKAPA (kräver inloggning)
+/**
+ * GET /properties/:id
+ * Visa en specifik annons (publikt)
+ */
+propertyApp.get("/:id", withSupabase, async (c) => {
+  const sb = c.get("supabase");
+  const id = c.req.param("id");
+
+  const { data, error } = await sb
+    .from("properties")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) return c.json({ error: error.message }, 404);
+  return c.json({ data });
+});
+
+/**
+ * POST /properties
+ * Skapa annons – sätter owner_id = inloggad användare
+ * Kräver att profilen har role = 'host'
+ */
 propertyApp.post("/", requireAuth, async (c) => {
-  try {
-    const sb = c.get("supabase");
-    const user = c.get("user") as User; // <- TS: user is guaranteed by requireAuth
-    const body = await c.req.json();
+  const sb = c.get("supabase");
+  const user = c.get("user") as User;
 
-    const payload = {
-      title: body.title,
-      description: body.description ?? null,
-      location: body.location ?? null,
-      price_per_night: Number(body.price_per_night ?? 0),
-      is_active: body.is_active ?? true,
-      owner_id: user.id, // <- kräver kolumnen owner_id
-    };
+  console.log("insert as user", user.id);
 
-    const { data, error } = await sb
-      .from("properties")
-      .insert(payload)
-      .select("*")
-      .single();
+  // Säkerställ host-roll
+  const { data: profile, error: pErr } = await sb
+    .from("profiles")
+    .select("role")
+    .eq("user_id", user.id)
+    .single();
 
-    if (error) {
-      console.error("POST /properties error:", error);
-      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
-    }
-
-    return c.json({ data }, 201);
-  } catch (err: any) {
-    console.error("POST /properties crashed:", err);
-    return c.json({ error: err?.message ?? "Server error" }, 500);
+  if (pErr) return c.json({ error: pErr.message }, 400);
+  if (!profile || profile.role !== "host") {
+    return c.json({ error: "Endast värdar kan skapa annonser." }, 403);
   }
+
+  const body = (await c.req.json()) as NewPropertyBody;
+
+  const payload = {
+    title: String(body.title ?? "").trim(),
+    description: body.description ?? null,
+    location: body.location ?? null,
+    price_per_night: Number(body.price_per_night ?? 0),
+    is_active: body.is_active ?? true,
+    main_image_url: body.main_image_url ?? null,
+    image_urls: Array.isArray(body.image_urls) ? body.image_urls : [],
+    owner_id: user.id, // ← viktigt för RLS
+  };
+
+  if (!payload.title) return c.json({ error: "title is required" }, 400);
+
+  const { data, error } = await sb
+    .from("properties")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("properties insert error:", error);
+    return c.json({ error: error.message }, 403);
+  }
+  return c.json({ data }, 201);
 });
 
-// UPPDATERA (kräver inloggning)
-propertyApp.put("/:id", requireAuth, async (c) => {
-  try {
-    const sb = c.get("supabase");
-    const id = c.req.param("id");
-    const body = await c.req.json();
+/**
+ * PATCH /properties/:id
+ * Uppdatera en egen annons (ägarskap kontrolleras av RLS)
+ */
+propertyApp.patch("/:id", requireAuth, async (c) => {
+  const sb = c.get("supabase");
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as UpdatePropertyBody;
 
-    const { data, error } = await sb
-      .from("properties")
-      .update({
-        title: body.title,
-        description: body.description ?? null,
-        location: body.location ?? null,
-        price_per_night: Number(body.price_per_night ?? 0),
-        is_active: body.is_active ?? true,
-      })
-      .eq("id", id)
-      .select("*")
-      .single();
+  const update: Record<string, unknown> = {};
+  if (body.title !== undefined) update.title = String(body.title ?? "").trim();
+  if (body.description !== undefined) update.description = body.description ?? null;
+  if (body.location !== undefined) update.location = body.location ?? null;
+  if (body.price_per_night !== undefined) update.price_per_night = Number(body.price_per_night ?? 0);
+  if (body.is_active !== undefined) update.is_active = Boolean(body.is_active);
+  if (body.main_image_url !== undefined) update.main_image_url = body.main_image_url ?? null;
+  if (body.image_urls !== undefined) update.image_urls = Array.isArray(body.image_urls) ? body.image_urls : [];
 
-    if (error) {
-      console.error("PUT /properties/:id error:", error);
-      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
-    }
-    return c.json({ data });
-  } catch (err: any) {
-    console.error("PUT /properties/:id crashed:", err);
-    return c.json({ error: err?.message ?? "Server error" }, 500);
+  const { data, error } = await sb
+    .from("properties")
+    .update(update)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("properties update error:", error);
+    return c.json({ error: error.message }, 403);
   }
+  return c.json({ data });
 });
 
-// TA BORT (kräver inloggning)
+/**
+ * DELETE /properties/:id
+ * Ta bort en egen annons (ägarskap kontrolleras av RLS)
+ */
 propertyApp.delete("/:id", requireAuth, async (c) => {
-  try {
-    const sb = c.get("supabase");
-    const id = c.req.param("id");
+  const sb = c.get("supabase");
+  const id = c.req.param("id");
 
-    const { error } = await sb.from("properties").delete().eq("id", id);
-    if (error) {
-      console.error("DELETE /properties/:id error:", error);
-      throw new HTTPException(400, { res: c.json({ error: error.message }, 400) });
-    }
-    return c.json({ ok: true });
-  } catch (err: any) {
-    console.error("DELETE /properties/:id crashed:", err);
-    return c.json({ error: err?.message ?? "Server error" }, 500);
+  const { data, error } = await sb
+    .from("properties")
+    .delete()
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("properties delete error:", error);
+    return c.json({ error: error.message }, 403);
   }
+  return c.json({ data });
 });
 
 export default propertyApp;

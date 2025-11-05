@@ -1,50 +1,38 @@
-import "dotenv/config";
+import "dotenv/config"; // <-- Måste vara först
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
+
 import { optionalAuth } from "./middlewares/auth.js";
-import propertyApp from "./routes/properties.js";
 import authApp from "./routes/auth.js";
+import propertyApp from "./routes/properties.js";
 import bookingApp from "./routes/bookings.js";
-import { supabase } from "./lib/supabase.js";
+import storageApp from "./routes/storage.js";
 
 const app = new Hono();
 
-/**
- * CORS för frontend-kommunikation – MÅSTE ligga före auth och routes
- */
+// CORS måste ligga före auth/routes
 app.use(
   "*",
   cors({
-    origin: ["http://localhost:3000"], // lägg till fler origins vid behov
+    origin: "http://localhost:3000",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
-    credentials: true, // behövs för cookies
+    credentials: true,
+    maxAge: 86400,
   })
 );
 
-/**
- * Supabase-cookie auth på alla requests (efter CORS, före routes)
- */
+// Lägg till Supabase-cookies och refresh på varje request
 app.use("*", optionalAuth);
 
-/**
- * Valfri test-endpoint
- */
-app.get("/", async (c) => {
-  const { data, error } = await supabase.from("properties").select("*").limit(1);
-  if (error) return c.json({ ok: false, error: error.message });
-  return c.json({ ok: true, service: "bnb-api", data });
-});
-
-/**
- * Routes
- */
+// Routes
 app.route("/auth", authApp);
 app.route("/properties", propertyApp);
 app.route("/bookings", bookingApp);
+app.route("/storage", storageApp);
 
-const port = Number(process.env.HONO_PORT) || 5177;
-console.log(`API running on http://localhost:${port}`);
-
+// Starta servern
+const port = Number(process.env.HONO_PORT ?? 5177);
+console.log(`✅ API running on http://localhost:${port}`);
 serve({ fetch: app.fetch, port });

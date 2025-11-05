@@ -52,7 +52,6 @@ export async function updateProperty(
 
 export async function deleteProperty(sb: SupabaseClient, id: string) {
   // RLS ser till att bara ägaren får radera
-  // Viktigt: INGEN select().single() här – det orsakar "Cannot coerce..."-felet
   return sb
     .from('properties')
     .delete()
