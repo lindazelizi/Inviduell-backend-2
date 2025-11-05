@@ -12,7 +12,6 @@ export const propertySchema = z.object({
 
 export const createPropertyValidator = zValidator("json", propertySchema, (result, c) => {
   if (!result.success) {
-    // Skicka tydliga fel tillbaka
     return c.json({ errors: result.error.flatten() }, 400);
   }
 });

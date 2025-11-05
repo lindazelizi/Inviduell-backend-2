@@ -12,14 +12,11 @@ declare module "hono" {
   }
 }
 
-// 👉 endast säkra kakor i prod/https
 const IS_PROD = process.env.NODE_ENV === "production";
-// Chrome kräver Secure för SameSite=None, men det funkar inte på http.
-// I dev kör vi LAX + !Secure, i prod kör vi NONE + Secure.
-const COOKIE_SECURE: boolean = IS_PROD;
+const COOKIE_SECURE = IS_PROD;
 const COOKIE_SAMESITE: "none" | "lax" | "strict" = IS_PROD ? "none" : "lax";
 
-function createSb(c: Context) {
+function makeClient(c: Context) {
   return createServerClient(supabaseUrl, supabaseKey, {
     cookies: {
       getAll() {
@@ -33,11 +30,10 @@ function createSb(c: Context) {
         cookies.forEach(({ name, value, options }) => {
           setCookie(c, name, value, {
             ...options,
-            // viktigt: dessa styr vi centralt
             httpOnly: true,
             secure: COOKIE_SECURE,
             sameSite: COOKIE_SAMESITE,
-            path: "/", // gör kakan giltig för hela sajten
+            path: "/",
           });
         });
       },
@@ -47,15 +43,24 @@ function createSb(c: Context) {
 
 export async function withSupabase(c: Context, next: Next) {
   if (!c.get("supabase")) {
-    const sb = createSb(c);
+    const sb = makeClient(c);
     c.set("supabase", sb);
 
-    const {
-      data: { user },
-      error,
-    } = await sb.auth.getUser();
+    const auth = c.req.header("authorization");
+    let user: User | null = null;
 
-    c.set("user", error ? null : user ?? null);
+    if (auth?.startsWith("Bearer ")) {
+      const token = auth.slice(7).trim();
+      const { data } = await sb.auth.getUser(token);
+      user = data?.user ?? null;
+    }
+
+    if (!user) {
+      const { data } = await sb.auth.getUser();
+      user = data?.user ?? null;
+    }
+
+    c.set("user", user);
   }
   return next();
 }
@@ -63,8 +68,8 @@ export async function withSupabase(c: Context, next: Next) {
 export const optionalAuth = withSupabase;
 
 export async function requireAuth(c: Context, next: Next) {
-  await withSupabase(c, async () => { });
+  await withSupabase(c, async () => {});
   const user = c.get("user");
-  if (!user) throw new HTTPException(401, { message: "Unauthorized" });
+  if (!user) throw new HTTPException(401, { message: "Otillåtet" });
   return next();
 }

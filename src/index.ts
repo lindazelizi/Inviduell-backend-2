@@ -1,4 +1,4 @@
-import "dotenv/config"; // <-- Måste vara först
+import "dotenv/config";
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
@@ -11,28 +11,23 @@ import storageApp from "./routes/storage.js";
 
 const app = new Hono();
 
-// CORS måste ligga före auth/routes
 app.use(
   "*",
   cors({
-    origin: "http://localhost:3000",
+    origin: process.env.FRONTEND_URL || "http://localhost:3000",
     allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-    maxAge: 86400,
   })
 );
 
-// Lägg till Supabase-cookies och refresh på varje request
 app.use("*", optionalAuth);
 
-// Routes
 app.route("/auth", authApp);
 app.route("/properties", propertyApp);
 app.route("/bookings", bookingApp);
 app.route("/storage", storageApp);
 
-// Starta servern
-const port = Number(process.env.HONO_PORT ?? 5177);
-console.log(`✅ API running on http://localhost:${port}`);
+const port = Number(process.env.PORT ?? process.env.HONO_PORT ?? 5177);
+console.log(`Server startad på http://localhost:${port}`);
 serve({ fetch: app.fetch, port });

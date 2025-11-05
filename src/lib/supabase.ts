@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Läser miljövariabler från .env (som laddas av dotenv i index.ts)
 export const supabaseUrl =
   process.env.SUPABASE_URL ||
   process.env.PUBLIC_SUPABASE_URL ||
@@ -9,7 +8,6 @@ export const supabaseUrl =
 export const supabaseKey =
   process.env.SUPABASE_ANON_KEY ||
   process.env.SUPABASE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
   "";
 
 if (!supabaseUrl || !supabaseKey) {
